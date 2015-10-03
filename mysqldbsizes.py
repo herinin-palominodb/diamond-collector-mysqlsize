@@ -41,13 +41,13 @@ default diamond will invoke the *collect* method every 60 seconds.
 You can put a section named `[[MySQLSizeCollector]]` under `[collectors]` in
 your diamond.conf:
 
-	[collectors]
-	[[MySQLSizeCollector]]
-	# enable the collector
-	enabled = True
-	# no need to gather statistics more frequently
-	interval = 600
-	
+    [collectors]
+    [[MySQLSizeCollector]]
+    # enable the collector
+    enabled = True
+    # no need to gather statistics more frequently
+    interval = 600
+
 
 Diamond collectors that require a separate configuration file should place a
 .conf file in /etc/diamond/collectors/.
@@ -57,8 +57,8 @@ class. Configuration file for this collector should be named `MySQLSizeCollector
 
 Example configuration file:
 
-    host = localhost
-    user = stat
+    hosts = [ stat1:rndpass@host1:3308/None/db_server1, host2:3307/information_schema/db_server2, host ]
+    user = anotherstat
     password = somerandompassword
 
 
