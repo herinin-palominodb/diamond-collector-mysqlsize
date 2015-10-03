@@ -102,11 +102,11 @@ class MySQLSizeCollector(diamond.collector.Collector):
         config.update({
             'path':     'mysql.size',
             # Connection settings
-            'hosts': 'stat:statistics@localhost:3306/information_schema`',
+            'hosts': 'localhost:3306/information_schema`',
             'port': 3306,
             'db': 'information_schema',
-            'user': 'stat',
-            'password': 'statistics',
+            'user': '',
+            'password': '',
             'ssl': False,
             'connection_timeout': 60,
         })
