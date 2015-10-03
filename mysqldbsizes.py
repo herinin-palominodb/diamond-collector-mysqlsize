@@ -70,7 +70,9 @@ try:
     from MySQLdb import MySQLError
 except ImportError:
     MySQLdb = None
+
 import diamond
+import re
 
 class MySQLSizeCollector(diamond.collector.Collector):
 
@@ -80,14 +82,15 @@ class MySQLSizeCollector(diamond.collector.Collector):
         """
         config_help = super(MySQLSizeCollector, self).get_default_config_help()
         config_help.update({
-            'host': 'A single hostname[:port] to get metrics from',
-            'db': '(Optional) database to connect to',
+            'hosts': 'List of hosts to collect from. Format is ' +
+            '[username:yourpassword@]host[:port][/db][/nickname]' +
+            'use db "None" to avoid connecting to a particular db',
             'user': 'Username for authenticating to the RDBMS',
             'password': 'Password for authenticating to the RDBMS',
             'port': 'Port number',
-            'ssl': 'True to enable SSL connections to the MySQL server.'
-                    ' Default is False',
-            'databases': 'list of databases to collect sizes',
+            'connection_timeout': 'Specify the connection timeout',
+            'ssl': 'True to enable SSL connections to the MySQL server(s).'
+                    ' Default is False. This is option is currently unimplemented.',
         })
         return config_help
 
@@ -99,13 +102,13 @@ class MySQLSizeCollector(diamond.collector.Collector):
         config.update({
             'path':     'mysql.size',
             # Connection settings
-            'host': 'localhost',
+            'hosts': 'stat:statistics@localhost:3306/information_schema`',
             'port': 3306,
             'db': 'information_schema',
             'user': 'stat',
-            'password': '',
+            'password': 'statistics',
             'ssl': False,
-
+            'connection_timeout': 60,
         })
         return config
 
@@ -116,17 +119,17 @@ class MySQLSizeCollector(diamond.collector.Collector):
             cursor.execute(query)
         except (AttributeError, MySQLdb.OperationalError), e:
             self.log.error('%s: got an error "%s" executing query: "%s"', self.__class__.__name__, e, query)
-            raise e
+            raise
         # rows = cursor.fetchall()
         return cursor.fetchall()
 
     def connect(self, params):
         try:
             self.db = MySQLdb.connect(**params)
-            self.log.debug('%s: connected to database %s@%s:%s/%s', self.__class__.__name__, params['user'], params['host'], params['port'], params['db'])
-        except MySQLError, e:
+        except MySQLdb.Error, e:
             self.log.error('%s: could not connect to database %s', self.__class__.__name__, e)
-            return False
+            raise
+        self.log.debug('%s: connected to database %s@%s:%s', self.__class__.__name__, params['user'], params['host'], params['port'])
         return True
 
     def get_sizes(self, params):
@@ -153,11 +156,55 @@ class MySQLSizeCollector(diamond.collector.Collector):
                 metrics[metric_name] = row
         except (AttributeError, MySQLError), e:
             self.log.error('%s: could not get table sizes: %s', self.__class__.__name__, e)
-            raise e
+            raise
         return metrics
 
     def disconnect(self):
         self.db.close()
+
+    def parsehoststr(self, hoststr):
+        params = {}
+        self.log.debug('%s: parsing hoststr: %s', self.__class__.__name__, hoststr)
+        # matches = re.search('\A(?:([^:]*)(?::([^@]*))?@)?([^:/]*)(?:(?::([^/]*))?/?([^/]*)?/?(.*))?\Z', hoststr)
+        matches = re.match('\A(?:([^:]*)(?::([^@]*))?@)?([a-zA-Z0-9_\.-]+)(?:(?::([^/]*))?(?:/([^/]*)?)?(?:/(.*))?)?\Z', hoststr)
+
+        if not matches:
+            raise ValueError('string ' + hoststr + ' is not in the expected format')
+
+        params['host'] = matches.group(3)
+
+        if matches.group(1):
+            params['user'] = matches.group(1)
+        else:
+            params['user'] = self.config.get('user')
+
+        if matches.group(2):
+            params['passwd'] = matches.group(2)
+        else:
+            params['passwd'] = self.config.get('password')
+
+        try:
+            params['port'] = int(matches.group(4))
+        except (ValueError, TypeError):
+            params['port'] = self.config.get('port')
+
+        if matches.group(5):
+            params['db'] = matches.group(5)
+        else:
+            params['db'] = self.config.get('db')
+
+        if params['db'] == 'None':
+            del params['db']
+
+        if matches.group(6):
+            params['alias'] = matches.group(6)
+        elif len(self.config.get('hosts')) == 1:
+            # one host only, no need for an alias
+            del params['alias']
+        else:
+            params['alias'] = re.sub('[:\.]', '_', params['host'] + ":" + str(params['port']))
+        self.log.debug('%s: params: %s', self.__class__.__name__, params)
+        return params
 
     def collect(self):
 
@@ -165,30 +212,51 @@ class MySQLSizeCollector(diamond.collector.Collector):
             self.log.error('%s: unable to import MySQLdb', self.__class__.__name__)
             return False
 
-        conn_params = {
-            'host': self.config['host'],
-            'user': self.config['user'],
-            'passwd': self.config['password'],
-            'db': self.config['db'],
-            'port': self.config['port'],
-            'ssl': self.config['ssl'],
-        }
+        hosts = self.config.get('hosts')
 
-        try:
-            metrics = self.get_sizes(params=conn_params)
-        except Exception, e:
+        # Convert a string config value to be an array
+        if isinstance(hosts, basestring):
+            hosts = [hosts]
+
+        # convert connection_timeout to integer
+        if self.config['connection_timeout']:
+            self.config['connection_timeout'] = int(self.config['connection_timeout'])
+
+        for host in hosts:
             try:
-                self.disconnect()
-            except MySQLdb.ProgrammingError:
-                pass
-            self.log.error('%s: collection failed for %s %s', self.__class__.__name__, conn_params['host'], e)
-            raise e
+                conn_params = self.parsehoststr(hoststr=host)
+            except ValueError as e:
+                self.log.warn('%s: Connection string parsing failed: %s, skipping host', self.__class__.__name__, e)
+                continue
+
+            if 'alias' in conn_params:
+                del conn_params['alias']
+
+            conn_params['connect_timeout'] = self.config['connection_timeout']
+
+            try:
+                metrics = self.get_sizes(params=conn_params)
+            except MySQLdb.OperationalError, e:
+                self.log.error('%s: collection failed for %s: %s, skipping', self.__class__.__name__, host, e)
+                continue
+            except Exception, e:
+                self.log.error('%s: collection failed for %s: %s', self.__class__.__name__, conn_params['host'], e)
+                raise
+            finally:
+                try:
+                    self.disconnect()
+                except AttributeError:
+                    # failed to disconnect from the database, most probably never connected
+                    pass
+                except MySQLdb.ProgrammingError:
+                    self.log.error('%s: programming error: %s', self.__class__.__name__)
+                    pass
 
 
-        for name in metrics.keys():
-            self.log.debug('%s: publishing metrics for %s', self.__class__.__name__, name)
-            for metric, value in metrics[name].items():
-                if metric in ('table_schema','table_name'):
-                    continue
-                self.log.debug('%s: publish for %s: %s=%s', self.__class__.__name__, name, metric, value)
-                self.publish(name + "." + metric, value)
+            for name in metrics.keys():
+                self.log.debug('%s: publishing metrics for %s', self.__class__.__name__, name)
+                for metric, value in metrics[name].items():
+                    if metric in ('table_schema','table_name'):
+                        continue
+                    self.log.debug('%s: publish for %s: %s=%s', self.__class__.__name__, name, metric, value)
+                    self.publish(name + "." + metric, value)
