@@ -147,25 +147,25 @@ class MySQLSizeCollector(diamond.collector.Collector):
         if not self.connect(params):
             return metrics
 
-        self.log.debug('%s: getting table sizes from database', self.__class__.__name__)
-        rows = self.get_db_results("""
-            SELECT
-                table_schema, table_name, table_rows,
-                data_length, index_length, data_free
-            FROM INFORMATION_SCHEMA.TABLES
-            WHERE
+        self.log.debug('%s: getting table sizes from database', self.name)
+        try:
+            rows = self.get_db_results("""
+                SELECT
+                    table_schema, table_name, table_rows,
+                    data_length, index_length, data_free
+                FROM INFORMATION_SCHEMA.TABLES
+                WHERE
                 table_type='BASE TABLE'
                 AND table_schema NOT IN ('INFORMATION_SCHEMA','PERFORMANCE_SCHEMA','mysql')
-        """)
-
-        try:
-            for row in rows:
-                metric_name=row['table_schema'] + "." + row['table_name']
-                self.log.debug('%s: processing: %s', self.__class__.__name__, metric_name)
-                metrics[metric_name] = row
+            """)
         except (AttributeError, MySQLError), e:
             self.log.error('%s: could not get table sizes: %s', self.name, e)
             raise
+
+        for row in rows:
+            metric_name=row['table_schema'] + "." + row['table_name']
+            self.log.debug('%s: processing: %s', self.name, metric_name)
+            metrics[metric_name] = row
         return metrics
 
     def disconnect(self):
