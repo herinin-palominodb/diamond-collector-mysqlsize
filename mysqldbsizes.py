@@ -82,24 +82,23 @@ class MySQLSizeCollector(diamond.collector.Collector):
         """
         config_help = super(MySQLSizeCollector, self).get_default_config_help()
         config_help.update({
-            'hosts': 'List of hosts to collect from. Format is ' +
-            '[username:yourpassword@]host[:port][/db][/nickname]. ' +
-            'Use db "None" to avoid connecting to a particular db. ' +
-            'If you omit any of the non-required parts you can ' +
-            'specify them later.',
+            'host': 'hostname or IP address of MySQL server to collect from.' +
+            'This is the only required argument. If you omit any of the ' +
+            'non-required arguments they will be copied from the root section ' +
+            'if defined.',
             'db': 'Database to connect to if not specified in hosts. ' +
+            'Use db "None" to avoid connecting to a particular db. ' +
             'By default the collector uses `INFORMATION_SCHEMA`',
-            'user': 'Username for authenticating to the MySQL database. ' +
-            'If not specified in hosts',
-            'password': 'Password for authenticating to the MySQL database' +
-            'If not specified in hosts',
+            'user': 'User name for authenticating to the MySQL database. ',
+            'password': 'Password for authenticating to the MySQL database',
             'port': 'Port number. If not specified in hosts. By default ' +
             '3306 will be used.',
             'connection_timeout': 'Specify the connection timeout. Set to ' +
-            '60 seconds by default. The module will abort connections if ' +
-            'if they are not established within the timeout.',
-            'ssl': 'True to enable SSL connections to the MySQL server(s).'
-                    ' Default is False. This is option is currently unimplemented.',
+            '30 seconds by default. The collector will abort connections if ' +
+            'they are not established within the timeout.',
+            'ssl': 'Currently not implemented and ignored. False by default. ' +
+            'To enable SSL connections to the MySQL server(s) you need to have ' +
+            'a set of certificate and private key readable by diamond.'
         })
         return config_help
 
@@ -111,13 +110,12 @@ class MySQLSizeCollector(diamond.collector.Collector):
         config.update({
             'path':     'mysql.size',
             # Connection settings
-            'hosts': 'localhost:3306/information_schema`',
             'port': 3306,
             'db': 'information_schema',
             'user': '',
             'password': '',
             'ssl': False,
-            'connection_timeout': 60,
+            'connection_timeout': 30,
         })
         return config
 
@@ -164,56 +162,69 @@ class MySQLSizeCollector(diamond.collector.Collector):
 
         for row in rows:
             metric_name=row['table_schema'] + "." + row['table_name']
-            self.log.debug('%s: processing: %s', self.name, metric_name)
+            self.log.debug('%s: found metrics for: %s', self.name, metric_name)
             metrics[metric_name] = row
         return metrics
+
+    def get_conn_params(self, config):
+        params = {
+                    'host': config['host'],
+                    'user': config['user'],
+                    'passwd': config['password'],
+                    }
+        # convert connection_timeout to integer
+        if config['connection_timeout']:
+            params['connect_timeout'] = int(config['connection_timeout'])
+        try:
+            params['port'] = int(config['port'])
+        except (ValueError, TypeError):
+            params['port'] = config['port']
+
+        if config['db']:
+            params['db'] = config['db']
+        # TODO: fix ssl configuration
+        params['ssl'] = False
+
+        return params
 
     def disconnect(self):
         self.db.close()
 
-    def parsehoststr(self, hoststr):
-        params = {}
-        self.log.debug('%s: parsing hoststr: %s', self.name, hoststr)
-        # matches = re.search('\A(?:([^:]*)(?::([^@]*))?@)?([^:/]*)(?:(?::([^/]*))?/?([^/]*)?/?(.*))?\Z', hoststr)
-        matches = re.match('\A(?:([^:]*)(?::([^@]*))?@)?([a-zA-Z0-9_\.-]+)(?:(?::([^/]*))?(?:/([^/]*)?)?(?:/(.*))?)?\Z', hoststr)
+    def copymissing(self, left, right):
+        for key, val in list(left.items()):
+            if key in right or isinstance(val, dict):
+                continue
+            else:
+                right[key] = val
 
-        if not matches:
-            raise ValueError('string ' + hoststr + ' is not in the expected format')
+    def process_config(self):
+        super(MySQLSizeCollector, self).process_config()
 
-        params['host'] = matches.group(3)
+        # get a list of sections (Section objects)
+        sections = self.config.sections
 
-        if matches.group(1):
-            params['user'] = matches.group(1)
-        else:
-            params['user'] = self.config.get('user')
+        # if no default section is specified in the configuration file, use the
+        # root ConfigObj object as 'default' to fill any missing parameters.
 
-        if matches.group(2):
-            params['passwd'] = matches.group(2)
-        else:
-            params['passwd'] = self.config.get('password')
+        for section in sections:
+            if not self.config[section].get('host'):
+                self.log.warn('%s: config section %s has no host parameter defined, skipping', self.name, section)
+                # skip sections without a host
+                continue
 
-        try:
-            params['port'] = int(matches.group(4))
-        except (ValueError, TypeError):
-            params['port'] = self.config.get('port')
+            # set host alias to section title for sections that have a host but no alias
+            if 'alias' not in self.config[section]:
+                self.config[section]['alias'] = re.sub('[:\. /]', '_', section)
+            else:
+                # sanitize aliases/section names
+                self.config[section]['alias'] = re.sub('[:\. /]', '_', self.config[section]['alias'])
 
-        if matches.group(5):
-            params['db'] = matches.group(5)
-        else:
-            params['db'] = self.config.get('db')
+            # copy all missing configuration from the root config object, without overwriting
+            self.copymissing(cfg, self.config[section])
 
-        if params['db'] == 'None':
-            del params['db']
-
-        if matches.group(6):
-            params['alias'] = matches.group(6)
-        elif len(self.config.get('hosts')) == 1:
-            # one host only, no need for an alias
-            del params['alias']
-        else:
-            params['alias'] = re.sub('[:\.]', '_', params['host'] + ":" + str(params['port']))
-        self.log.debug('%s: params: %s', self.name, params)
-        return params
+        # set an alias for the root section last, so it doesn't get copied to all other sections
+        if not ('alias' in self.config and 'default' in sections):
+            self.config['alias'] = 'default'
 
     def collect(self):
 
@@ -221,35 +232,26 @@ class MySQLSizeCollector(diamond.collector.Collector):
             self.log.error('%s: unable to import MySQLdb', self.name)
             return False
 
-        hosts = self.config.get('hosts')
+        conn_params = {}
+        metrics = {}
+        if 'host' in self.config:
+            conn_params[self.config['alias']] = self.get_conn_params(self.config)
 
-        # Convert a string config value to be an array
-        if isinstance(hosts, basestring):
-            hosts = [hosts]
-
-        # convert connection_timeout to integer
-        if self.config['connection_timeout']:
-            self.config['connection_timeout'] = int(self.config['connection_timeout'])
-
-        for host in hosts:
-            try:
-                conn_params = self.parsehoststr(hoststr=host)
-            except ValueError as e:
-                self.log.warn('%s: Connection string parsing failed: %s, skipping host', self.name, e)
+        for section in self.config.sections:
+            # skip sections without a defined host
+            if 'host' not in self.config[section]:
                 continue
 
-            if 'alias' in conn_params:
-                del conn_params['alias']
+            conn_params[self.config[section]['alias']]=self.get_conn_params(self.config[section])
 
-            conn_params['connect_timeout'] = self.config['connection_timeout']
-
+        for alias in conn_params:
             try:
-                metrics = self.get_sizes(params=conn_params)
+                metrics[alias] = self.get_sizes(params=conn_params[alias])
             except MySQLdb.OperationalError, e:
-                self.log.error('%s: collection failed for %s: %s, skipping', self.name, host, e)
+                self.log.error('%s: collection failed for %s: %s, skipping', self.name, alias, e)
                 continue
             except Exception, e:
-                self.log.error('%s: collection failed for %s: %s', self.name, conn_params['host'], e)
+                self.log.error('%s: collection failed for %s: %s', self.name, alias, e)
                 raise
             finally:
                 try:
@@ -262,10 +264,10 @@ class MySQLSizeCollector(diamond.collector.Collector):
                     pass
 
 
-            for name in metrics.keys():
-                self.log.debug('%s: publishing metrics for %s', self.name, name)
-                for metric, value in metrics[name].items():
-                    if metric in ('table_schema','table_name'):
+        for alias in metrics:
+            for metric in metrics[alias].keys():
+                self.log.debug('%s: publishing metrics for host: %s: %s', self.name, alias, metric)
+                for key, value in metrics[alias][metric].items():
+                    if key in ('table_schema','table_name'):
                         continue
-                    self.log.debug('%s: publish for %s: %s=%s', self.name, name, metric, value)
-                    self.publish(name + "." + metric, value)
+                    self.publish(metric + "." + key, value)
