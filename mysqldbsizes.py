@@ -38,8 +38,11 @@ Example:
 Diamond looks for collectors in /usr/lib/diamond/collectors/ (on Ubuntu). By
 default diamond will invoke the *collect* method every 60 seconds.
 
-You can put a section named `[[MySQLSizeCollector]]` under `[collectors]` in
-your diamond.conf:
+There are several ways to configure a python-diamond collector.
+
+The simplest way if you have a single host is to put all the
+configuration in your `diamond.conf` in a section named
+`[[MySQLSizeCollector]]` under [collectors].
 
     [collectors]
     [[MySQLSizeCollector]]
@@ -47,20 +50,74 @@ your diamond.conf:
     enabled = True
     # no need to gather statistics more frequently
     interval = 600
+    host = localhost
+    user = stats
+    password = stats
 
+The only required configuration parameter is `host`. All other parameters will be
+assigned default values if unspecified.
 
-Diamond collectors that require a separate configuration file should place a
-.conf file in /etc/diamond/collectors/.
-The configuration file name should match the name of the diamond collector
-class. Configuration file for this collector should be named `MySQLSizeCollector.conf`
-/etc/diamond/collectors/MySQLSizeCollector.conf.
+Another way to configure Diamond collectors is to use a separate configuration
+file placed in `/etc/diamond/collectors/`. The configuration file name should
+match the name of the python-diamond collector class. The configuration file
+for this collector should be named `MySQLSizeCollector.conf`
+(`/etc/diamond/collectors/MySQLSizeCollector.conf`).
+
+In this configuration file you can specify the connection information of
+your MySQL server. If you don't specify a non-required parameter (everything but
+"host") it will be assigned a default value. Here is a sample config file:
+
+    host = localhost
+    user = stats
+    password = stats
+    db = prod1
+
+In this case MySQLSizeCollector will connect to host localhost with user 'stats'
+and password 'stats', database 'prod1' with a default connection_timeout of 30
+seconds.
+
+If you want to specify the data from more than one MySQL server to be collected,
+you should put each host in a separate section in your config file. A section is
+created by putting a string (optionally quoted, if it contains spaces or other
+non-standart hostname characters) on a new line in square brackets
+(eg. `[server1]`, `[prod-server-sydney]`).
+
+Whatever parameters are left unspecified in each section will be set to the corresponding
+parameters from the root section (top of your config file, without a section) of the
+config file, if specified, or the built-in default values.
 
 Example configuration file:
 
-    hosts = [ stat1:rndpass@host1:3308/None/db_server1, host2:3307/information_schema/db_server2, host ]
     user = anotherstat
     password = somerandompassword
 
+    [master-prod]
+    host = server1.prod.example.com
+
+    [replica1-prod]
+    host = mysql-slave.prod.example.com
+    db = prod
+    port = 3309
+
+    [replica2-prod]
+    host = mysql-slave.sydney.example.com
+    db = drprod
+    # this is a host running at the other end of the world, give it more time to respond
+    connection_timeout = 60
+    user = drstat
+
+In this particular example the collector will try to obtain table sizes from
+'server1.prod.example.com' using username:password 'anotherstat:somerandompassword. The db
+parameter for this host is not specified, so the connection will be established to
+`information_schema` schema, on port 3306 and the connection_timeout will be the default
+of 30 seconds.
+The collector will also connect to 'mysql-slave.prod.example.com' on port 3309, database
+'prod' using username and password supplied in the root section of the config file
+(anotherstat, somerandompassword). Connections to 'mysql-slave.sydney.example.com' host will
+use port 3306, database 'drprod' and user 'drstat'. The password will be the one supplied
+in the root configuration section ('somerandompassword').
+
+SSL connections are not implemented yet.
 
 """
 
