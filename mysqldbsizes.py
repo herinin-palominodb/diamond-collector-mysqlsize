@@ -9,7 +9,7 @@ Diamond collector that monitors MySQL table sizes
  * MySQLdb
  * MySQL 5.0.3+
 
-### Grants and Privileges
+#### Grants and Privileges
 
 MySQL filters the information visible from `information_schema` tables based
 on the access privileges of the user executing the query. Information about
@@ -113,11 +113,36 @@ parameter for this host is not specified, so the connection will be established 
 of 30 seconds.
 The collector will also connect to 'mysql-slave.prod.example.com' on port 3309, database
 'prod' using username and password supplied in the root section of the config file
-(anotherstat, somerandompassword). Connections to 'mysql-slave.sydney.example.com' host will
+('anotherstat', 'somerandompassword'). Connections to 'mysql-slave.sydney.example.com' host will
 use port 3306, database 'drprod' and user 'drstat'. The password will be the one supplied
 in the root configuration section ('somerandompassword').
 
 SSL connections are not implemented yet.
+
+#### Metrics
+
+By default metrics are collected from each host specified in the configuration file. The
+metrics that are published are:
+1. table_rows
+2. data_length
+3. index_length
+4. data_free
+If you don't want to publish any of them you can use the standard configuration parameters
+`[ metrics_whitelist ]` and `[ metrics_blacklist ]` to list to blacklist or whitelist
+individual metrics.
+
+##### Naming
+By default all metrics are published using the following hierarchy:
+
+    servers.<hostname>.mysql.[alias.]size.<schema>.<table>.<metric>
+
+If you have only one host specified in your configuration file then the `[alias]` part of
+the path will be empty. This allows for simpler classification of metrics if you don't
+need to specify more than one host. If there are subsections that specify more hosts, then
+alias will be either the name of the section or the value of the `alias` configuration 
+option, if supplied.
+
+Each alias is sanitized by replacing ":", ".", "/", and "<space>" with "_" (underscore).
 
 """
 
@@ -139,10 +164,14 @@ class MySQLSizeCollector(diamond.collector.Collector):
         """
         config_help = super(MySQLSizeCollector, self).get_default_config_help()
         config_help.update({
-            'host': 'hostname or IP address of MySQL server to collect from.' +
+            'host': 'hostname or IP address of MySQL server to collect from. ' +
             'This is the only required argument. If you omit any of the ' +
             'non-required arguments they will be copied from the root section ' +
             'if defined.',
+            'alias': 'specify a common display name for metrics in this host. '+
+            'If unspecified, the root section gets an alias "default" and each ' +
+            'config gets the name of the section as an alias. Use this option ' +
+            'to override the default assignements.',
             'db': 'Database to connect to if not specified in hosts. ' +
             'Use db "None" to avoid connecting to a particular db. ' +
             'By default the collector uses `INFORMATION_SCHEMA`',
