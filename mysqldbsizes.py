@@ -165,7 +165,7 @@ class MySQLSizeCollector(diamond.collector.Collector):
         """
         config = super(MySQLSizeCollector, self).get_default_config()
         config.update({
-            'path':     'mysql.size',
+            'path':     'mysql',
             # Connection settings
             'port': 3306,
             'db': 'information_schema',
@@ -277,7 +277,7 @@ class MySQLSizeCollector(diamond.collector.Collector):
                 self.config[section]['alias'] = re.sub('[:\. /]', '_', self.config[section]['alias'])
 
             # copy all missing configuration from the root config object, without overwriting
-            self.copymissing(cfg, self.config[section])
+            self.copymissing(self.config, self.config[section])
 
         # set an alias for the root section last, so it doesn't get copied to all other sections
         if not ('alias' in self.config and 'default' in sections):
@@ -322,9 +322,14 @@ class MySQLSizeCollector(diamond.collector.Collector):
 
 
         for alias in metrics:
+            if len(metrics) > 1:
+                metric_prefix = alias + '.size.'
+            else:
+                metric_prefix = 'size.'
+
             for metric in metrics[alias].keys():
                 self.log.debug('%s: publishing metrics for host: %s: %s', self.name, alias, metric)
                 for key, value in metrics[alias][metric].items():
                     if key in ('table_schema','table_name'):
                         continue
-                    self.publish(metric + "." + key, value)
+                    self.publish(metric_prefix + metric + "." + key, value)
