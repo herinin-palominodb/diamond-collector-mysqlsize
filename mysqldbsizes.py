@@ -138,7 +138,7 @@ By default all metrics are published using the following hierarchy:
 
 If you have only one host specified in your configuration file then the `[alias]` part of
 the path will be empty. This allows for simpler classification of metrics if you don't
-need to specify more than one host. If there are subsections that specify more hosts, then
+need to specify more than one host. If there are sections that specify more hosts, then
 alias will be either the name of the section or the value of the `alias` configuration 
 option, if supplied.
 
