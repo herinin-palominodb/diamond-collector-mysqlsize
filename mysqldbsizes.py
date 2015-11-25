@@ -9,6 +9,20 @@ Diamond collector that monitors MySQL table sizes
  * MySQLdb
  * MySQL 5.0.3+
 
+#### Considerations
+
+The information about table sizes is obtained from INFORMATION_SCHEMA.TABLES.
+As such it is not guaranteed to be 100% accurate, but is subject to the
+frequency with which the InnoDB and other engines update this information.
+
+Additional concern is the performance impact of running queries against
+INFORMATION_SCHEMA.TABLES. By default MySQL tries to update table statistics
+on each access to certain tables from INFORMATION_SCHEMA. This causes delays
+and needlessly increases the load on the server. In order to stop MySQL from
+invalidating statistics on every INFORMATION_SCHEMA query you need to set
+*`innodb_stats_on_metadata = 0`* in your MySQL configuration. You can also set
+this at runtime because it is a global dynamic variable.
+
 #### Grants and Privileges
 
 MySQL filters the information visible from `information_schema` tables based
