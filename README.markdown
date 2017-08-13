@@ -1,5 +1,6 @@
 
-Diamond collector that monitors MySQL table sizes
+[Diamond](https://github.com/python-diamond/Diamond) custom collector that
+publishes metrics about MySQL table sizes.
 
 #### Dependencies
 
