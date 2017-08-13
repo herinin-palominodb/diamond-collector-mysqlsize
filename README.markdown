@@ -53,9 +53,10 @@ There are several ways to configure a python-diamond collector.
 
 The simplest way if you have a single host is to put all the
 configuration in your `diamond.conf` in a section named
-`[[MySQLSizeCollector]]` under [collectors].
+`[[MySQLSizeCollector]]` under `[collectors]` section.
 
     [collectors]
+    ...
     [[MySQLSizeCollector]]
     # enable the collector
     enabled = True
@@ -74,6 +75,13 @@ match the name of the python-diamond collector class. The configuration file
 for this collector should be named `MySQLSizeCollector.conf`
 (`/etc/diamond/collectors/MySQLSizeCollector.conf`).
 
+The syntax and available parameters in this configuration file is the
+same as the main `diamond.conf file`.
+
+Further configuration instructions assume you are using a standalone collector
+configuration file in `/etc/diamond/collectors/MySQLSizeCollector.conf` but are
+also applicable under the `[[MySQLSizeCollector]]` section in your `diamond.conf`
+
 In this configuration file you can specify the connection information of
 your MySQL server. If you don't specify a non-required parameter (everything but
 "host") it will be assigned a default value. Here is a sample config file:
@@ -90,7 +98,7 @@ seconds.
 If you want to specify the data from more than one MySQL server to be collected,
 you should put each host in a separate section in your config file. A section is
 created by putting a string (optionally quoted, if it contains spaces or other
-non-standart hostname characters) on a new line in square brackets
+non-standard hostname characters) on a new line in square brackets
 (eg. `[server1]`, `[prod-server-sydney]`).
 
 Whatever parameters are left unspecified in each section will be set to the corresponding
@@ -139,7 +147,7 @@ metrics that are published are:
 3. index_length
 4. data_free
 If you don't want to publish any of them you can use the standard configuration parameters
-`[ metrics_whitelist ]` and `[ metrics_blacklist ]` to list to blacklist or whitelist
+`[ metrics_whitelist ]` and `[ metrics_blacklist ]` to blacklist or whitelist
 individual metrics.
 
 ##### Naming
@@ -149,9 +157,9 @@ By default all metrics are published using the following hierarchy:
 
 If you have only one host specified in your configuration file then the `[alias]` part of
 the path will be empty. This allows for simpler classification of metrics if you don't
-need to specify more than one host. If there are sections that specify more hosts, then
-alias will be either the name of the section or the value of the `alias` configuration 
-option, if supplied.
+need to specify more than one host. If your config file contains sections that specify
+multiple hosts, then alias will be either the name of the section or the value of the
+`alias` configuration option, if supplied.
 
-Each alias is sanitized by replacing ":", ".", "/", and "<space>" with "_" (underscore).
+Each alias is sanitized by replacing ":", ".", "/", and "<space>" with "\_" (underscore).
 
